@@ -1,12 +1,6 @@
-export type DrillType =
-  | 'dribble-counter'
-  | 'triple-threat'
-  | 'pushups'
-  | 'lunges'
-  | 'situps'
-  | 'jump-rope'
-  | 'lateral-hop'
-  | 'lateral-quickness';
+import {DrillType as DrillTypeFromDrills} from '../drills/types';
+
+export type DrillType = DrillTypeFromDrills;
 
 export type RootStackParamList = {
   Home: undefined;

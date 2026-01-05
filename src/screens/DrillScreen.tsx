@@ -1,92 +1,179 @@
-import React, {useState, useEffect, useCallback} from 'react';
-import {View, Text, StyleSheet, TouchableOpacity, Linking, Platform} from 'react-native';
+import React, {useCallback, useEffect} from 'react';
+import {View, StyleSheet, TouchableOpacity, Text, StatusBar} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
-import {Camera, useCameraDevice, useCameraPermission} from 'react-native-vision-camera';
+import Orientation from 'react-native-orientation-locker';
 import {RootStackParamList} from '../types/navigation';
+
+// Components
+import {CameraView, StartCountdown} from '../components';
+
+// Hooks
+import {useRepCounter, useTimer, useDrillState} from '../hooks';
+
+// ML (placeholder for now)
+import {usePoseDetection, useObjectDetection} from '../ml';
+
+// Drills
+import {DribbleCounter, getDrillConfig, DrillType} from '../drills';
 
 type DrillScreenProps = NativeStackScreenProps<RootStackParamList, 'Drill'>;
 
 export function DrillScreen({route, navigation}: DrillScreenProps) {
-  const {title} = route.params;
+  const {drillId, title} = route.params;
+  const config = getDrillConfig(drillId as DrillType);
   const insets = useSafeAreaInsets();
-  const {hasPermission, requestPermission} = useCameraPermission();
-  const [repCount, setRepCount] = useState(0);
-  const device = useCameraDevice('front');
 
+  // Lock to landscape on mount, unlock on unmount
   useEffect(() => {
-    if (!hasPermission) {
-      requestPermission();
-    }
-  }, [hasPermission, requestPermission]);
+    Orientation.lockToLandscape();
+    StatusBar.setHidden(true);
 
-  const handleOpenSettings = useCallback(() => {
-    Linking.openSettings();
+    return () => {
+      Orientation.lockToPortrait();
+      StatusBar.setHidden(false);
+    };
   }, []);
 
+  // Hooks
+  const {count, increment, reset: resetCount} = useRepCounter();
+  const {time, start: startTimer, pause: pauseTimer, reset: resetTimer, formatTime} = useTimer();
+  const {status, startCountdown, setActive, pause, resume, reset: resetStatus} = useDrillState();
+
+  // ML hooks (placeholders)
+  const {pose} = usePoseDetection();
+  const {objects} = useObjectDetection();
+
+  // Handle back navigation
   const handleBack = useCallback(() => {
     navigation.goBack();
   }, [navigation]);
 
-  if (!hasPermission) {
-    return (
-      <View style={[styles.container, styles.centered]}>
-        <View style={[styles.header, {paddingTop: insets.top + 10}]}>
-          <TouchableOpacity onPress={handleBack} style={styles.backButton}>
-            <Text style={styles.backText}>{'‹ Back'}</Text>
-          </TouchableOpacity>
-        </View>
-        <View style={styles.permissionContainer}>
-          <Text style={styles.permissionTitle}>Camera Access Required</Text>
-          <Text style={styles.permissionText}>
-            Bloom needs camera access to track your exercise form and count reps.
-          </Text>
-          <TouchableOpacity style={styles.permissionButton} onPress={requestPermission}>
-            <Text style={styles.permissionButtonText}>Grant Permission</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.settingsButton} onPress={handleOpenSettings}>
-            <Text style={styles.settingsButtonText}>Open Settings</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
-  }
+  // Handle drill start
+  const handleStart = useCallback(() => {
+    startCountdown();
+  }, [startCountdown]);
 
-  if (!device) {
-    return (
-      <View style={[styles.container, styles.centered]}>
-        <Text style={styles.errorText}>No camera device found</Text>
-      </View>
-    );
-  }
+  // Handle countdown complete
+  const handleCountdownComplete = useCallback(() => {
+    setActive();
+    startTimer();
+  }, [setActive, startTimer]);
+
+  // Handle pause/resume
+  const handlePauseResume = useCallback(() => {
+    if (status === 'active') {
+      pause();
+      pauseTimer();
+    } else if (status === 'paused') {
+      resume();
+      startTimer();
+    }
+  }, [status, pause, resume, pauseTimer, startTimer]);
+
+  // Handle rep detected
+  const handleRepDetected = useCallback(() => {
+    increment();
+  }, [increment]);
+
+  // Render the appropriate drill component
+  const renderDrill = () => {
+    const drillProps = {
+      pose,
+      objects,
+      repCount: count,
+      onRepDetected: handleRepDetected,
+      status,
+      elapsedTime: time,
+    };
+
+    switch (drillId) {
+      case 'dribble-counter':
+        return <DribbleCounter {...drillProps} />;
+      default:
+        return <DribbleCounter {...drillProps} />;
+    }
+  };
+
+  const isActive = status === 'active' || status === 'paused';
 
   return (
     <View style={styles.container}>
-      <Camera
-        style={StyleSheet.absoluteFill}
-        device={device}
-        isActive={true}
-      />
+      {/* Fullscreen Camera */}
+      <CameraView isActive={true}>
+        {/* Drill-specific overlay */}
+        {renderDrill()}
 
-      <View style={[styles.header, {paddingTop: insets.top + 10}]}>
-        <TouchableOpacity onPress={handleBack} style={styles.backButton}>
-          <Text style={styles.backText}>{'‹ Back'}</Text>
-        </TouchableOpacity>
-        <Text style={styles.title}>{title}</Text>
-        <View style={styles.placeholder} />
-      </View>
+        {/* Countdown overlay */}
+        {status === 'countdown' && (
+          <StartCountdown onComplete={handleCountdownComplete} />
+        )}
 
-      <View style={[styles.footer, {paddingBottom: insets.bottom + 20}]}>
-        <View style={styles.repContainer}>
-          <Text style={styles.repLabel}>REPS</Text>
-          <Text style={styles.repCount}>{repCount}</Text>
-        </View>
-        <TouchableOpacity
-          style={styles.resetButton}
-          onPress={() => setRepCount(0)}>
-          <Text style={styles.resetText}>Reset</Text>
-        </TouchableOpacity>
-      </View>
+        {/* Ready state: Back button + centered Start button */}
+        {status === 'ready' && (
+          <>
+            {/* Back button top-left */}
+            <TouchableOpacity
+              style={[styles.backButton, {left: insets.left + 16, top: insets.top + 16}]}
+              onPress={handleBack}>
+              <Text style={styles.backText}>{'‹'}</Text>
+            </TouchableOpacity>
+
+            {/* Title - center top */}
+            <View style={[styles.titleContainer, {top: insets.top + 16}]}>
+              <Text style={styles.titleText}>{title}</Text>
+            </View>
+
+            {/* Centered Start button */}
+            <View style={styles.startContainer}>
+              <TouchableOpacity style={styles.startButton} onPress={handleStart}>
+                <Text style={styles.startText}>START</Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
+
+        {/* Active/Paused state: Reps (left) + Timer (right) + Pause (bottom right) */}
+        {isActive && (
+          <>
+            {/* Back button - only visible when paused */}
+            {status === 'paused' && (
+              <TouchableOpacity
+                style={[styles.backButton, {left: insets.left + 16, bottom: insets.bottom + 16}]}
+                onPress={handleBack}>
+                <Text style={styles.backText}>{'‹'}</Text>
+              </TouchableOpacity>
+            )}
+
+            {/* Reps - top left */}
+            <View style={[styles.statsBox, {left: insets.left + 16, top: insets.top + 16}]}>
+              <Text style={styles.statsLabel}>REPS</Text>
+              <Text style={styles.repsValue}>{count}</Text>
+            </View>
+
+            {/* Timer - top right */}
+            <View style={[styles.statsBox, {right: insets.right + 16, top: insets.top + 16}]}>
+              <Text style={styles.statsLabel}>TIME</Text>
+              <Text style={styles.timerValue}>{formatTime()}</Text>
+            </View>
+
+            {/* Paused overlay */}
+            {status === 'paused' && (
+              <View style={styles.pausedOverlay}>
+                <Text style={styles.pausedText}>PAUSED</Text>
+              </View>
+            )}
+
+            {/* Pause/Resume button - bottom right */}
+            <TouchableOpacity
+              style={[styles.pauseButton, {right: insets.right + 16, bottom: insets.bottom + 16}]}
+              onPress={handlePauseResume}>
+              <Text style={styles.pauseIcon}>{status === 'paused' ? '▶' : '⏸'}</Text>
+              <Text style={styles.pauseText}>{status === 'paused' ? 'Resume' : 'Pause'}</Text>
+            </TouchableOpacity>
+          </>
+        )}
+      </CameraView>
     </View>
   );
 }
@@ -94,117 +181,126 @@ export function DrillScreen({route, navigation}: DrillScreenProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#1a1a2e',
+    backgroundColor: '#000000',
   },
-  centered: {
+  backButton: {
+    position: 'absolute',
+    width: 50,
+    height: 50,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    borderRadius: 25,
+    zIndex: 60,
   },
-  header: {
+  backText: {
+    fontSize: 32,
+    color: '#ffffff',
+    fontWeight: '600',
+  },
+  titleContainer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    zIndex: 55,
+  },
+  titleText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#ffffff',
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  startContainer: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingBottom: 10,
-    backgroundColor: 'rgba(26, 26, 46, 0.8)',
-    zIndex: 10,
-  },
-  backButton: {
-    padding: 8,
-  },
-  backText: {
-    fontSize: 18,
-    color: '#ff6b35',
-    fontWeight: '600',
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#ffffff',
-  },
-  placeholder: {
-    width: 60,
-  },
-  footer: {
-    position: 'absolute',
     bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: 'rgba(26, 26, 46, 0.9)',
-    paddingTop: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 50,
+  },
+  startButton: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: 'rgba(255, 107, 53, 0.3)',
+    borderWidth: 4,
+    borderColor: '#ff6b35',
+    justifyContent: 'center',
     alignItems: 'center',
   },
-  repContainer: {
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  repLabel: {
-    fontSize: 14,
-    color: '#a0a0b0',
+  startText: {
+    color: '#ffffff',
+    fontSize: 20,
+    fontWeight: 'bold',
     letterSpacing: 2,
+  },
+  statsBox: {
+    position: 'absolute',
+    backgroundColor: 'rgba(0, 0, 0, 0.35)',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+    alignItems: 'center',
+    zIndex: 60,
+  },
+  statsLabel: {
+    fontSize: 11,
+    color: 'rgba(255, 255, 255, 0.7)',
+    letterSpacing: 2,
+    marginBottom: 2,
+  },
+  repsValue: {
+    fontSize: 36,
+    fontWeight: 'bold',
+    color: '#ff6b35',
+  },
+  timerValue: {
+    fontSize: 28,
+    fontWeight: '600',
+    color: '#ffffff',
+    fontVariant: ['tabular-nums'],
+  },
+  pauseButton: {
+    position: 'absolute',
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 16,
+    alignItems: 'center',
+    zIndex: 60,
+  },
+  pauseIcon: {
+    fontSize: 24,
+    color: '#ffffff',
     marginBottom: 4,
   },
-  repCount: {
-    fontSize: 72,
-    fontWeight: 'bold',
-    color: '#ff6b35',
-  },
-  resetButton: {
-    backgroundColor: '#2d2d44',
-    paddingHorizontal: 32,
-    paddingVertical: 12,
-    borderRadius: 24,
-  },
-  resetText: {
-    color: '#ffffff',
-    fontSize: 16,
+  pauseText: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.8)',
     fontWeight: '600',
   },
-  permissionContainer: {
-    padding: 32,
+  pausedOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    zIndex: 55,
   },
-  permissionTitle: {
-    fontSize: 24,
+  pausedText: {
+    fontSize: 48,
     fontWeight: 'bold',
     color: '#ffffff',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  permissionText: {
-    fontSize: 16,
-    color: '#a0a0b0',
-    textAlign: 'center',
-    marginBottom: 32,
-    lineHeight: 24,
-  },
-  permissionButton: {
-    backgroundColor: '#ff6b35',
-    paddingHorizontal: 32,
-    paddingVertical: 14,
-    borderRadius: 24,
-    marginBottom: 16,
-  },
-  permissionButtonText: {
-    color: '#ffffff',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  settingsButton: {
-    paddingHorizontal: 32,
-    paddingVertical: 14,
-  },
-  settingsButtonText: {
-    color: '#ff6b35',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  errorText: {
-    fontSize: 18,
-    color: '#ff6b6b',
+    letterSpacing: 8,
   },
 });
