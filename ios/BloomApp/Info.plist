@@ -35,6 +35,10 @@
 	</dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string></string>
+	<key>NSCameraUsageDescription</key>
+	<string>Bloom needs camera access to track your exercise form and count reps</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Bloom needs microphone access for video recording</string>
 	<key>RCTNewArchEnabled</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>
