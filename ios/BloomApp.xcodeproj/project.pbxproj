@@ -9,6 +9,8 @@
 /* Begin PBXBuildFile section */
 		0C80B921A6F3F58F76C31292 /* libPods-BloomApp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 5DCACB8F33CDC322A6C60F78 /* libPods-BloomApp.a */; };
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
+		1A711A902F0C504C00816B14 /* pose_landmarker_lite.task in Resources */ = {isa = PBXBuildFile; fileRef = 1A711A8F2F0C504C00816B14 /* pose_landmarker_lite.task */; };
+		1A711A922F0C505700816B14 /* efficientdet-lite0.tflite in Resources */ = {isa = PBXBuildFile; fileRef = 1A711A912F0C505700816B14 /* efficientdet-lite0.tflite */; };
 		761780ED2CA45674006654EE /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761780EC2CA45674006654EE /* AppDelegate.swift */; };
 		81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */; };
 		84AF60D091F41CE7A01B0031 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */; };
@@ -19,6 +21,8 @@
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = BloomApp/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = BloomApp/Info.plist; sourceTree = "<group>"; };
 		13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = PrivacyInfo.xcprivacy; path = BloomApp/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		1A711A8F2F0C504C00816B14 /* pose_landmarker_lite.task */ = {isa = PBXFileReference; lastKnownFileType = file; path = pose_landmarker_lite.task; sourceTree = "<group>"; };
+		1A711A912F0C505700816B14 /* efficientdet-lite0.tflite */ = {isa = PBXFileReference; lastKnownFileType = file; path = "efficientdet-lite0.tflite"; sourceTree = "<group>"; };
 		3B4392A12AC88292D35C810B /* Pods-BloomApp.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-BloomApp.debug.xcconfig"; path = "Target Support Files/Pods-BloomApp/Pods-BloomApp.debug.xcconfig"; sourceTree = "<group>"; };
 		5709B34CF0A7D63546082F79 /* Pods-BloomApp.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-BloomApp.release.xcconfig"; path = "Target Support Files/Pods-BloomApp/Pods-BloomApp.release.xcconfig"; sourceTree = "<group>"; };
 		5DCACB8F33CDC322A6C60F78 /* libPods-BloomApp.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-BloomApp.a"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -42,6 +46,8 @@
 		13B07FAE1A68108700A75B9A /* BloomApp */ = {
 			isa = PBXGroup;
 			children = (
+				1A711A8F2F0C504C00816B14 /* pose_landmarker_lite.task */,
+				1A711A912F0C505700816B14 /* efficientdet-lite0.tflite */,
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
 				761780EC2CA45674006654EE /* AppDelegate.swift */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
@@ -158,8 +164,10 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				1A711A922F0C505700816B14 /* efficientdet-lite0.tflite in Resources */,
 				81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */,
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
+				1A711A902F0C504C00816B14 /* pose_landmarker_lite.task in Resources */,
 				84AF60D091F41CE7A01B0031 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

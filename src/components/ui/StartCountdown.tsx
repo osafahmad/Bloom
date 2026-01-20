@@ -6,7 +6,7 @@ interface StartCountdownProps {
   seconds?: number;
 }
 
-export function StartCountdown({onComplete, seconds = 10}: StartCountdownProps) {
+export function StartCountdown({onComplete, seconds = 3}: StartCountdownProps) {
   const [count, setCount] = useState(seconds);
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const opacityAnim = useRef(new Animated.Value(1)).current;

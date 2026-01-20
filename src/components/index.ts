@@ -4,6 +4,7 @@ export {CameraView} from './camera/CameraView';
 // Overlays
 export {RepCounter} from './overlays/RepCounter';
 export {Timer} from './overlays/Timer';
+export {SkeletonOverlay} from './overlay/SkeletonOverlay';
 
 // UI
 export {DrillHeader} from './ui/DrillHeader';

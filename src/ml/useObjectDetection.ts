@@ -1,57 +1,80 @@
-import {useState, useCallback} from 'react';
+import {useState, useCallback, useRef} from 'react';
 import {DetectedObject, BallPosition} from './types';
+import {DEBUG_CONFIG} from './config';
 
 interface UseObjectDetectionReturn {
   objects: DetectedObject[];
   ballPosition: BallPosition | null;
   isDetecting: boolean;
   error: string | null;
-  // Placeholder for future MediaPipe integration
+  setObjects: (objects: DetectedObject[]) => void;
   startDetection: () => void;
   stopDetection: () => void;
+  reset: () => void;
 }
 
 /**
- * Placeholder hook for MediaPipe Object Detection
+ * Hook for managing object detection state
  *
- * Future implementation will:
- * 1. Initialize MediaPipe object detection model (or custom basketball model)
- * 2. Process camera frames via frame processor
- * 3. Return detected objects with bounding boxes
- * 4. Track basketball specifically for dribble counting
- *
- * Integration point: react-native-vision-camera frame processor
+ * The actual detection happens in CameraView via react-native-mediapipe.
+ * This hook manages the state and tracks ball position for dribble detection.
  */
 export function useObjectDetection(): UseObjectDetectionReturn {
-  const [objects, setObjects] = useState<DetectedObject[]>([]);
+  const [objects, setObjectsState] = useState<DetectedObject[]>([]);
   const [ballPosition, setBallPosition] = useState<BallPosition | null>(null);
   const [isDetecting, setIsDetecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const lastLogTime = useRef<number>(0);
+
+  const setObjects = useCallback((newObjects: DetectedObject[]) => {
+    setObjectsState(newObjects);
+
+    // Find basketball/sports ball and track its center position
+    const ball = newObjects.find(
+      obj => obj.label === 'sports ball' || obj.label === 'basketball',
+    );
+
+    if (ball) {
+      const centerX = ball.boundingBox.x + ball.boundingBox.width / 2;
+      const centerY = ball.boundingBox.y + ball.boundingBox.height / 2;
+
+      setBallPosition({
+        x: centerX,
+        y: centerY,
+        timestamp: Date.now(),
+      });
+
+      if (DEBUG_CONFIG.logDetections) {
+        const now = Date.now();
+        if (now - lastLogTime.current > 1000) {
+          console.log('[ObjectDetection] Ball detected:', {
+            label: ball.label,
+            confidence: ball.confidence.toFixed(2),
+            position: {x: centerX.toFixed(3), y: centerY.toFixed(3)},
+          });
+          lastLogTime.current = now;
+        }
+      }
+    } else {
+      setBallPosition(null);
+    }
+  }, []);
 
   const startDetection = useCallback(() => {
     setIsDetecting(true);
-    // TODO: Initialize MediaPipe object detection
-    // const frameProcessor = useFrameProcessor((frame) => {
-    //   'worklet';
-    //   const detectedObjects = detectObjects(frame);
-    //   runOnJS(setObjects)(detectedObjects);
-    //
-    //   // Find basketball and track position
-    //   const ball = detectedObjects.find(obj => obj.label === 'basketball');
-    //   if (ball) {
-    //     runOnJS(setBallPosition)({
-    //       x: ball.boundingBox.x + ball.boundingBox.width / 2,
-    //       y: ball.boundingBox.y + ball.boundingBox.height / 2,
-    //       timestamp: Date.now(),
-    //     });
-    //   }
-    // }, []);
+    setError(null);
   }, []);
 
   const stopDetection = useCallback(() => {
     setIsDetecting(false);
-    setObjects([]);
+    setObjectsState([]);
     setBallPosition(null);
+  }, []);
+
+  const reset = useCallback(() => {
+    setObjectsState([]);
+    setBallPosition(null);
+    setError(null);
   }, []);
 
   return {
@@ -59,7 +82,9 @@ export function useObjectDetection(): UseObjectDetectionReturn {
     ballPosition,
     isDetecting,
     error,
+    setObjects,
     startDetection,
     stopDetection,
+    reset,
   };
 }

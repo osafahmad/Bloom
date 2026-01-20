@@ -1,18 +1,18 @@
-import React, {useCallback, useEffect} from 'react';
-import {View, StyleSheet, TouchableOpacity, Text, StatusBar} from 'react-native';
+import React, {useCallback, useEffect, useState} from 'react';
+import {View, StyleSheet, TouchableOpacity, Text, StatusBar, useWindowDimensions} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import Orientation from 'react-native-orientation-locker';
 import {RootStackParamList} from '../types/navigation';
 
 // Components
-import {CameraView, StartCountdown} from '../components';
+import {CameraView, StartCountdown, SkeletonOverlay} from '../components';
 
 // Hooks
 import {useRepCounter, useTimer, useDrillState} from '../hooks';
 
-// ML (placeholder for now)
-import {usePoseDetection, useObjectDetection} from '../ml';
+// ML - using ball-only detection (no pose needed)
+import {useBallOnlyDribbleDetection, DetectedObject} from '../ml';
 
 // Drills
 import {DribbleCounter, getDrillConfig, DrillType} from '../drills';
@@ -23,26 +23,79 @@ export function DrillScreen({route, navigation}: DrillScreenProps) {
   const {drillId, title} = route.params;
   const config = getDrillConfig(drillId as DrillType);
   const insets = useSafeAreaInsets();
+  const {width, height} = useWindowDimensions();
 
-  // Lock to landscape on mount, unlock on unmount
+  // Lock to portrait on mount (matching camera config), unlock on unmount
   useEffect(() => {
-    Orientation.lockToLandscape();
+    Orientation.lockToPortrait();
     StatusBar.setHidden(true);
 
     return () => {
-      Orientation.lockToPortrait();
+      Orientation.unlockAllOrientations();
       StatusBar.setHidden(false);
     };
   }, []);
 
   // Hooks
-  const {count, increment, reset: resetCount} = useRepCounter();
+  const {count, setCount, reset: resetCount} = useRepCounter();
   const {time, start: startTimer, pause: pauseTimer, reset: resetTimer, formatTime} = useTimer();
   const {status, startCountdown, setActive, pause, resume, reset: resetStatus} = useDrillState();
 
-  // ML hooks (placeholders)
-  const {pose} = usePoseDetection();
-  const {objects} = useObjectDetection();
+  // ML hook for ball-only dribble detection (tracks ball Y position)
+  const {
+    dribbleCount,
+    onObjectsUpdate: onDribbleObjectsUpdate,
+    startTracking,
+    stopTracking,
+    reset: resetDribble,
+  } = useBallOnlyDribbleDetection();
+
+  // State for detected objects (ball) with smoothing
+  const [detectedObjects, setDetectedObjects] = useState<DetectedObject[]>([]);
+  const lastDetectionRef = React.useRef<{objects: DetectedObject[], timestamp: number}>({objects: [], timestamp: 0});
+
+  // Smoothing: keep showing last detection for up to 300ms after it disappears
+  const DETECTION_PERSIST_MS = 300;
+
+  // Sync dribble count with rep counter
+  useEffect(() => {
+    setCount(dribbleCount);
+  }, [dribbleCount, setCount]);
+
+  // Start/stop tracking based on drill status
+  useEffect(() => {
+    if (status === 'active') {
+      startTracking();
+    } else {
+      stopTracking();
+    }
+  }, [status, startTracking, stopTracking]);
+
+  // Handle object detection callback with smoothing and dribble detection
+  const handleObjectDetected = useCallback(
+    (objects: DetectedObject[]) => {
+      const now = Date.now();
+
+      // Feed objects to dribble detection
+      onDribbleObjectsUpdate(objects);
+
+      if (objects.length > 0) {
+        // New detection - update state and save timestamp
+        lastDetectionRef.current = {objects, timestamp: now};
+        setDetectedObjects(objects);
+      } else {
+        // No detection - check if we should persist the last one
+        const timeSinceLastDetection = now - lastDetectionRef.current.timestamp;
+        if (timeSinceLastDetection < DETECTION_PERSIST_MS && lastDetectionRef.current.objects.length > 0) {
+          // Keep showing last detection (don't update state - it already has it)
+        } else {
+          // Clear detection after persist time expires
+          setDetectedObjects([]);
+        }
+      }
+    },
+    [DETECTION_PERSIST_MS, onDribbleObjectsUpdate],
+  );
 
   // Handle back navigation
   const handleBack = useCallback(() => {
@@ -71,18 +124,13 @@ export function DrillScreen({route, navigation}: DrillScreenProps) {
     }
   }, [status, pause, resume, pauseTimer, startTimer]);
 
-  // Handle rep detected
-  const handleRepDetected = useCallback(() => {
-    increment();
-  }, [increment]);
+  // Determine if detection should be enabled
+  const enableDetection = status === 'active';
 
   // Render the appropriate drill component
   const renderDrill = () => {
     const drillProps = {
-      pose,
-      objects,
       repCount: count,
-      onRepDetected: handleRepDetected,
       status,
       elapsedTime: time,
     };
@@ -99,8 +147,24 @@ export function DrillScreen({route, navigation}: DrillScreenProps) {
 
   return (
     <View style={styles.container}>
-      {/* Fullscreen Camera */}
-      <CameraView isActive={true}>
+      {/* Fullscreen Camera with ML detection */}
+      <CameraView
+        isActive={true}
+        enableDetection={enableDetection}
+        onObjectDetected={handleObjectDetected}>
+        {/* Ball detection overlay */}
+        {enableDetection && (
+          <SkeletonOverlay
+            pose={null}
+            detectedObjects={detectedObjects}
+            width={width}
+            height={height}
+            color="#00ff00"
+            lineWidth={3}
+            pointSize={8}
+          />
+        )}
+
         {/* Drill-specific overlay */}
         {renderDrill()}
 
