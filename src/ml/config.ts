@@ -94,7 +94,7 @@ export const POSE_DETECTION_CONFIG = {
 // ============================================
 export const OBJECT_DETECTION_CONFIG = {
   // Model file name (must be in ios bundle / android assets)
-  modelPath: 'efficientdet-lite0.tflite',
+  modelPath: 'efficientdet_lite0.tflite',
 
   // Execution delegate
   delegate: 'GPU' as Delegate,
