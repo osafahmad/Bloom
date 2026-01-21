@@ -147,45 +147,25 @@ export function CameraView({
         if (objectOutputs && objectOutputs.length >= 1) {
           const output = objectOutputs[0] as Float32Array;
           const numAnchors = 8400;
-          const numClasses = 5; // 9 total - 4 bbox = 5 classes
+          const minConfidence = 0.90; // 90% confidence threshold for basketball only
 
-          const minConfidence = 0.25;
           const detectedObjects: DetectedObject[] = [];
 
-          // Find best detection
+          // Find best basketball detection only (class 0)
           let bestScore = 0;
           let bestIdx = -1;
-          let bestClassIdx = 0;
 
           for (let i = 0; i < numAnchors; i++) {
-            // Get max class score (rows 4-8 contain class scores)
-            let maxClassScore = 0;
-            let maxClassIdx = 0;
-            for (let c = 0; c < numClasses; c++) {
-              const classScore = output[(4 + c) * numAnchors + i];
-              if (classScore > maxClassScore) {
-                maxClassScore = classScore;
-                maxClassIdx = c;
-              }
-            }
+            // Only check basketball class (class 0, which is row 4 in transposed format)
+            const basketballScore = output[4 * numAnchors + i];
 
-            if (maxClassScore > bestScore) {
-              bestScore = maxClassScore;
+            if (basketballScore > bestScore) {
+              bestScore = basketballScore;
               bestIdx = i;
-              bestClassIdx = maxClassIdx;
             }
           }
 
-          // Log best detection with bbox values
-          if (bestIdx >= 0) {
-            const xc = output[0 * numAnchors + bestIdx];
-            const yc = output[1 * numAnchors + bestIdx];
-            const w = output[2 * numAnchors + bestIdx];
-            const h = output[3 * numAnchors + bestIdx];
-            console.log('[YOLO] Best: class=' + bestClassIdx + ' score=' + bestScore.toFixed(3) +
-              ' bbox=[' + xc.toFixed(1) + ',' + yc.toFixed(1) + ',' + w.toFixed(1) + ',' + h.toFixed(1) + ']');
-          }
-
+          // Only add detection if it meets confidence threshold
           if (bestScore >= minConfidence && bestIdx >= 0) {
             // YOLO format (transposed): values are already normalized 0-1
             const xCenter = output[0 * numAnchors + bestIdx];
@@ -199,20 +179,17 @@ export function CameraView({
             const width = Math.max(0.01, Math.min(1, w));
             const height = Math.max(0.01, Math.min(1, h));
 
-            // Class 0 is basketball in this custom model
-            const label = bestClassIdx === 0 ? 'basketball' : 'class_' + bestClassIdx;
-
             detectedObjects.push({
-              label: label,
+              label: 'basketball',
               confidence: bestScore,
               boundingBox: {x, y, width, height},
             });
+
+            console.log('[YOLO] Basketball: score=' + bestScore.toFixed(3) +
+              ' bbox=[' + xCenter.toFixed(2) + ',' + yCenter.toFixed(2) + ',' + w.toFixed(2) + ',' + h.toFixed(2) + ']');
           }
 
           runObjectOnJS(detectedObjects);
-
-          const totalTime = Date.now() - frameStart;
-          console.log('[Frame] total=' + totalTime + 'ms, detections=' + detectedObjects.length);
         }
       }
     } catch (e: any) {
