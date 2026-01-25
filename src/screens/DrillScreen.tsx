@@ -152,8 +152,8 @@ export function DrillScreen({route, navigation}: DrillScreenProps) {
         isActive={true}
         enableDetection={enableDetection}
         onObjectDetected={handleObjectDetected}>
-        {/* Ball detection overlay */}
-        {enableDetection && (
+        {/* Ball detection overlay - temporarily hidden for testing */}
+        {/* {enableDetection && (
           <SkeletonOverlay
             pose={null}
             detectedObjects={detectedObjects}
@@ -163,7 +163,7 @@ export function DrillScreen({route, navigation}: DrillScreenProps) {
             lineWidth={3}
             pointSize={8}
           />
-        )}
+        )} */}
 
         {/* Drill-specific overlay */}
         {renderDrill()}

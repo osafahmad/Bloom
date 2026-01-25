@@ -1,5 +1,5 @@
 import React from 'react';
-import {View, Text, StyleSheet, ScrollView} from 'react-native';
+import {View, Text, StyleSheet, ScrollView, TouchableOpacity} from 'react-native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {CategorySection} from '../components/CategorySection';
@@ -93,8 +93,17 @@ export function HomeScreen({navigation}: HomeScreenProps) {
           {paddingTop: insets.top + 20, paddingBottom: insets.bottom + 20},
         ]}
         showsVerticalScrollIndicator={false}>
-        <Text style={styles.header}>BLOOM</Text>
-        <Text style={styles.subheader}>Choose your workout</Text>
+        <View style={styles.headerRow}>
+          <View>
+            <Text style={styles.header}>BLOOM</Text>
+            <Text style={styles.subheader}>Choose your workout</Text>
+          </View>
+          <TouchableOpacity
+            style={styles.settingsButton}
+            onPress={() => navigation.navigate('MLSettings')}>
+            <Text style={styles.settingsIcon}>⚙</Text>
+          </TouchableOpacity>
+        </View>
 
         {DRILL_CATEGORIES.map(category => (
           <CategorySection
@@ -129,6 +138,20 @@ const styles = StyleSheet.create({
   subheader: {
     fontSize: 16,
     color: '#a0a0b0',
+    marginBottom: 0,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
     marginBottom: 32,
+  },
+  settingsButton: {
+    padding: 8,
+    marginTop: 4,
+  },
+  settingsIcon: {
+    fontSize: 24,
+    color: '#a0a0b0',
   },
 });

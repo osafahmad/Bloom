@@ -8,6 +8,7 @@ export type RootStackParamList = {
     drillId: DrillType;
     title: string;
   };
+  MLSettings: undefined;
 };
 
 export interface DrillItem {

@@ -18,7 +18,7 @@ export const CAMERA_CONFIG = {
   // Camera resolution preset
   // Lower = faster processing, less battery
   // Higher = better accuracy, more detail
-  resolution: '720p' as CameraResolution,
+  resolution: '480p' as CameraResolution,
 
   // Camera position ('front' for selfie, 'back' for rear)
   position: 'back' as 'front' | 'back',
@@ -90,7 +90,7 @@ export const POSE_DETECTION_CONFIG = {
 };
 
 // ============================================
-// OBJECT DETECTION SETTINGS
+// OBJECT DETECTION SETTINGS (Legacy - kept for reference)
 // ============================================
 export const OBJECT_DETECTION_CONFIG = {
   // Model file name (must be in ios bundle / android assets)
@@ -111,6 +111,67 @@ export const OBJECT_DETECTION_CONFIG = {
 
   // Alternative: block list (empty = allow all)
   categoryDenylist: [],
+};
+
+// ============================================
+// YOLO MODEL SETTINGS
+// ============================================
+export type YoloModelType = 'yolo26n_float16' | 'yolo26n_float32' | 'efficientdet_lite0';
+export type ModelDelegate = 'core-ml' | 'default';
+
+// Model-specific configurations
+export const YOLO_MODELS = {
+  yolo26n_float16: {
+    inputSize: 320,
+    outputFormat: 'yolo' as const, // [1, 300, 6] - x1,y1,x2,y2,conf,class
+    numDetections: 300,
+    valuesPerDetection: 6,
+  },
+  yolo26n_float32: {
+    inputSize: 640,
+    outputFormat: 'yolo' as const,
+    numDetections: 300,
+    valuesPerDetection: 6,
+  },
+  efficientdet_lite0: {
+    inputSize: 320,
+    outputFormat: 'efficientdet' as const, // Different output format
+    numDetections: 25,
+    valuesPerDetection: 4, // boxes separate from scores/classes
+  },
+};
+
+export const YOLO_CONFIG = {
+  // ========== MODEL SELECTION ==========
+  // Which model to use: 'yolo26n_float16' | 'yolo26n_float32' | 'efficientdet_lite0'
+  activeModel: 'yolo26n_float16' as YoloModelType,
+
+  // Delegate: 'core-ml' (GPU on iOS) | 'default' (CPU)
+  delegate: 'core-ml' as ModelDelegate,
+
+  // ========== DETECTION SETTINGS ==========
+  // Minimum confidence threshold (0.0 - 1.0)
+  // Lower = more detections but more false positives
+  // Higher = fewer detections but more accurate
+  minConfidence: 0.10,
+
+  // Maximum number of objects to return
+  maxResults: 5,
+
+  // Target class ID (COCO dataset)
+  // 32 = sports ball (basketball, soccer ball, etc.)
+  // Set to -1 to detect all classes
+  targetClass: 32,
+
+  // ========== SMOOTHING SETTINGS ==========
+  // Keep showing last detection when ball is temporarily lost
+  enableSmoothing: true,
+
+  // Number of frames to keep last detection (~333ms at 30fps)
+  maxFramesToKeep: 10,
+
+  // Confidence decay when using cached detection (0.0 - 1.0)
+  smoothingDecay: 0.8,
 };
 
 // ============================================

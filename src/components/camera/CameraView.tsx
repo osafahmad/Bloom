@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect} from 'react';
+import React, {useCallback, useEffect, useMemo} from 'react';
 import {View, Text, StyleSheet, TouchableOpacity, Linking} from 'react-native';
 import {
   Camera,
@@ -12,9 +12,10 @@ import {useTensorflowModel} from 'react-native-fast-tflite';
 import {
   CAMERA_CONFIG,
   FRAME_PROCESSING_CONFIG,
-  OBJECT_DETECTION_CONFIG,
+  YOLO_MODELS,
 } from '../../ml/config';
 import {PoseLandmarks, DetectedObject, Point} from '../../ml/types';
+import {useMLSettings} from '../../contexts/MLSettingsContext';
 
 interface CameraViewProps {
   children?: React.ReactNode;
@@ -28,8 +29,9 @@ interface CameraViewProps {
 // MoveNet Lightning expects 192x192 input
 const POSE_MODEL_INPUT_SIZE = 192;
 
-// This model expects 640x640 input (based on error: expects 4915200 bytes = 640x640x3x4)
-const OBJECT_MODEL_INPUT_SIZE = 640;
+// Store last known detection for smoothing
+let lastDetection: DetectedObject | null = null;
+let framesSinceLastDetection = 0;
 
 export function CameraView({
   children,
@@ -42,17 +44,50 @@ export function CameraView({
   const {hasPermission, requestPermission} = useCameraPermission();
   const device = useCameraDevice(cameraPosition);
 
+  // Get ML settings from context
+  const {settings} = useMLSettings();
+
   // Load MoveNet Lightning model with GPU acceleration
   const poseModel = useTensorflowModel(
     require('../../../assets/models/movenet_lightning.tflite'),
-    'core-ml', // Use CoreML for GPU acceleration on iOS
+    'core-ml',
   );
 
-  // Load EfficientDet-Lite0 model for object detection
-  // Note: Using default delegate (CPU) as CoreML may have compatibility issues with some models
-  const objectModel = useTensorflowModel(
-    require('../../../assets/models/efficientdet_lite0.tflite'),
+  // Load ALL YOLO models upfront so we can switch between them
+  const yoloFloat16Model = useTensorflowModel(
+    require('../../../assets/models/yolo26n_float16.tflite'),
+    settings.delegate,
   );
+
+  const yoloFloat32Model = useTensorflowModel(
+    require('../../../assets/models/yolo26n_float32.tflite'),
+    settings.delegate,
+  );
+
+  const efficientdetModel = useTensorflowModel(
+    require('../../../assets/models/efficientdet_lite0.tflite'),
+    settings.delegate,
+  );
+
+  // Select the active model based on settings
+  const objectModel = useMemo(() => {
+    switch (settings.activeModel) {
+      case 'yolo26n_float32':
+        return yoloFloat32Model;
+      case 'efficientdet_lite0':
+        return efficientdetModel;
+      case 'yolo26n_float16':
+      default:
+        return yoloFloat16Model;
+    }
+  }, [settings.activeModel, yoloFloat16Model, yoloFloat32Model, efficientdetModel]);
+
+  // Get the config for the active model
+  const activeModelConfig = YOLO_MODELS[settings.activeModel];
+  const inputSize = activeModelConfig.inputSize;
+  const numDetections = activeModelConfig.numDetections;
+  const valuesPerDetection = activeModelConfig.valuesPerDetection;
+  const outputFormat = activeModelConfig.outputFormat;
 
   // Get resize plugin instance
   const {resize} = useResizePlugin();
@@ -60,23 +95,24 @@ export function CameraView({
   useEffect(() => {
     if (poseModel.state === 'loaded') {
       console.log('[CameraView] Pose model loaded successfully');
-      console.log('[CameraView] Model inputs:', poseModel.model.inputs);
-      console.log('[CameraView] Model outputs:', poseModel.model.outputs);
     } else if (poseModel.state === 'error') {
       console.error('[CameraView] Failed to load pose model:', (poseModel as {error: Error}).error);
     }
   }, [poseModel]);
 
   useEffect(() => {
-    console.log('[CameraView] Object model state:', objectModel.state);
+    console.log('[CameraView] Active model:', settings.activeModel);
+    console.log('[CameraView] Model state:', objectModel.state);
+    console.log('[CameraView] Delegate:', settings.delegate);
+    console.log('[CameraView] Input size:', inputSize);
     if (objectModel.state === 'loaded') {
       console.log('[CameraView] Object detection model loaded successfully');
-      console.log('[CameraView] Object model inputs:', JSON.stringify(objectModel.model.inputs));
-      console.log('[CameraView] Object model outputs:', JSON.stringify(objectModel.model.outputs));
+      console.log('[CameraView] Model inputs:', JSON.stringify(objectModel.model.inputs));
+      console.log('[CameraView] Model outputs:', JSON.stringify(objectModel.model.outputs));
     } else if (objectModel.state === 'error') {
       console.error('[CameraView] Failed to load object model:', (objectModel as {error: Error}).error);
     }
-  }, [objectModel]);
+  }, [objectModel, settings.activeModel, settings.delegate, inputSize]);
 
   // Callback to send pose results to JS thread
   const handlePoseResult = useCallback((pose: PoseLandmarks | null) => {
@@ -120,73 +156,149 @@ export function CameraView({
 
       // Run object detection
       if (objectModelLoaded) {
-        console.log('[Frame] Starting resize...');
+        // Resize to model input size
         const resizeStart = Date.now();
         const objectResized = resize(frame, {
           scale: {
-            width: OBJECT_MODEL_INPUT_SIZE,
-            height: OBJECT_MODEL_INPUT_SIZE,
+            width: inputSize,
+            height: inputSize,
           },
           pixelFormat: 'rgb',
           dataType: 'float32',
         });
         const resizeTime = Date.now() - resizeStart;
-        console.log('[Frame] Resize done in ' + resizeTime + 'ms');
 
-        console.log('[Frame] Starting inference...');
+        // Run inference
         const inferenceStart = Date.now();
         const objectOutputs = objectModel.model.runSync([objectResized]);
         const inferenceTime = Date.now() - inferenceStart;
-        console.log('[Frame] Inference done in ' + inferenceTime + 'ms');
 
-        // YOLO model output format: [1, 9, 8400] - TRANSPOSED format
-        // Row 0-3: x_center, y_center, width, height for all 8400 anchors
-        // Row 4-8: class scores for all 8400 anchors
-        // Data layout: output[row * 8400 + anchor_idx]
+        // Log timing occasionally (once per second) - always log regardless of outputs
+        if (frameStart % 1000 < 50) {
+          console.log('[Timing] resize=' + resizeTime + 'ms, inference=' + inferenceTime + 'ms, total=' + (resizeTime + inferenceTime) + 'ms');
+          console.log('[Model] format=' + outputFormat + ', outputs=' + (objectOutputs ? objectOutputs.length : 0));
+          if (objectOutputs) {
+            for (let i = 0; i < objectOutputs.length; i++) {
+              const arr = objectOutputs[i] as Float32Array;
+              console.log('[Output ' + i + '] length=' + arr.length + ' first3=' + Array.from(arr.slice(0, 3)).map(v => v.toFixed(3)).join(','));
+            }
+          }
+        }
 
         if (objectOutputs && objectOutputs.length >= 1) {
-          const output = objectOutputs[0] as Float32Array;
-          const numAnchors = 8400;
-          const minConfidence = 0.90; // 90% confidence threshold for basketball only
+          // Use settings values
+          const minConfidence = settings.minConfidence;
+          const targetClass = settings.targetClass;
+          const maxFramesToKeep = settings.maxFramesToKeep;
+          const smoothingDecay = settings.smoothingDecay;
 
           const detectedObjects: DetectedObject[] = [];
 
-          // Find best basketball detection only (class 0)
           let bestScore = 0;
           let bestIdx = -1;
+          let bestBox = {x1: 0, y1: 0, x2: 0, y2: 0};
 
-          for (let i = 0; i < numAnchors; i++) {
-            // Only check basketball class (class 0, which is row 4 in transposed format)
-            const basketballScore = output[4 * numAnchors + i];
+          if (outputFormat === 'yolo') {
+            // YOLO format: single output [1, 300, 6] with [x1, y1, x2, y2, conf, class]
+            const output = objectOutputs[0] as Float32Array;
 
-            if (basketballScore > bestScore) {
-              bestScore = basketballScore;
-              bestIdx = i;
+            // Log output details occasionally
+            if (frameStart % 1000 < 50) {
+              console.log('[YOLO] Output length:', output.length);
+              for (let i = 0; i < 3; i++) {
+                const offset = i * valuesPerDetection;
+                const conf = output[offset + 4];
+                const cls = Math.round(output[offset + 5]);
+                console.log('[YOLO] Det' + i + ': class=' + cls + ' conf=' + conf.toFixed(2));
+              }
+            }
+
+            // Find best detection matching target class
+            for (let i = 0; i < numDetections; i++) {
+              const offset = i * valuesPerDetection;
+              const confidence = output[offset + 4];
+              const classId = Math.round(output[offset + 5]);
+
+              const matchesTarget = targetClass === -1 || classId === targetClass;
+              if (matchesTarget && confidence > bestScore && confidence >= minConfidence) {
+                bestScore = confidence;
+                bestIdx = i;
+                bestBox = {
+                  x1: output[offset + 0],
+                  y1: output[offset + 1],
+                  x2: output[offset + 2],
+                  y2: output[offset + 3],
+                };
+              }
+            }
+          } else if (outputFormat === 'efficientdet') {
+            // EfficientDet format: multiple outputs
+            // [0] boxes: [1, 25, 4] - y1, x1, y2, x2 (normalized)
+            // [1] classes: [1, 25] - class ids
+            // [2] scores: [1, 25] - confidence scores
+            // [3] num_detections: [1] - number of valid detections
+            const boxes = objectOutputs[0] as Float32Array;
+            const classes = objectOutputs[1] as Float32Array;
+            const scores = objectOutputs[2] as Float32Array;
+
+            // Log output details occasionally
+            if (frameStart % 1000 < 50) {
+              console.log('[EfficientDet] boxes:', boxes.length, 'classes:', classes.length, 'scores:', scores.length);
+              for (let i = 0; i < 3; i++) {
+                const conf = scores[i];
+                const cls = Math.round(classes[i]);
+                console.log('[EfficientDet] Det' + i + ': class=' + cls + ' conf=' + conf.toFixed(2));
+              }
+            }
+
+            // Find best detection matching target class
+            for (let i = 0; i < numDetections; i++) {
+              const confidence = scores[i];
+              const classId = Math.round(classes[i]);
+
+              const matchesTarget = targetClass === -1 || classId === targetClass;
+              if (matchesTarget && confidence > bestScore && confidence >= minConfidence) {
+                bestScore = confidence;
+                bestIdx = i;
+                // EfficientDet boxes are [y1, x1, y2, x2]
+                const boxOffset = i * 4;
+                bestBox = {
+                  x1: boxes[boxOffset + 1], // x1
+                  y1: boxes[boxOffset + 0], // y1
+                  x2: boxes[boxOffset + 3], // x2
+                  y2: boxes[boxOffset + 2], // y2
+                };
+              }
             }
           }
 
-          // Only add detection if it meets confidence threshold
-          if (bestScore >= minConfidence && bestIdx >= 0) {
-            // YOLO format (transposed): values are already normalized 0-1
-            const xCenter = output[0 * numAnchors + bestIdx];
-            const yCenter = output[1 * numAnchors + bestIdx];
-            const w = output[2 * numAnchors + bestIdx];
-            const h = output[3 * numAnchors + bestIdx];
+          // Add best detection
+          if (bestIdx >= 0) {
+            // Convert corner coords to x, y, width, height (already normalized 0-1)
+            const x = Math.max(0, Math.min(1, bestBox.x1));
+            const y = Math.max(0, Math.min(1, bestBox.y1));
+            const width = Math.max(0.01, Math.min(1, bestBox.x2 - bestBox.x1));
+            const height = Math.max(0.01, Math.min(1, bestBox.y2 - bestBox.y1));
 
-            // Convert center coords to top-left corner
-            const x = Math.max(0, Math.min(1, xCenter - w / 2));
-            const y = Math.max(0, Math.min(1, yCenter - h / 2));
-            const width = Math.max(0.01, Math.min(1, w));
-            const height = Math.max(0.01, Math.min(1, h));
-
-            detectedObjects.push({
+            const detection: DetectedObject = {
               label: 'basketball',
               confidence: bestScore,
               boundingBox: {x, y, width, height},
-            });
+            };
 
-            console.log('[YOLO] Basketball: score=' + bestScore.toFixed(3) +
-              ' bbox=[' + xCenter.toFixed(2) + ',' + yCenter.toFixed(2) + ',' + w.toFixed(2) + ',' + h.toFixed(2) + ']');
+            detectedObjects.push(detection);
+            lastDetection = detection;
+            framesSinceLastDetection = 0;
+          } else {
+            // No detection - use last known position for a few frames
+            framesSinceLastDetection++;
+            if (lastDetection && framesSinceLastDetection <= maxFramesToKeep) {
+              // Show last known position with reduced confidence
+              detectedObjects.push({
+                ...lastDetection,
+                confidence: lastDetection.confidence * smoothingDecay,
+              });
+            }
           }
 
           runObjectOnJS(detectedObjects);
@@ -195,7 +307,7 @@ export function CameraView({
     } catch (e: any) {
       console.log('[CameraView] Frame processor error:', e?.message || e?.toString() || 'unknown error');
     }
-  }, [poseModel, objectModel, resize, runPoseOnJS, runObjectOnJS]);
+  }, [poseModel, objectModel, resize, runPoseOnJS, runObjectOnJS, inputSize, numDetections, valuesPerDetection, outputFormat, settings]);
 
   const handleOpenSettings = useCallback(() => {
     Linking.openSettings();
@@ -250,6 +362,7 @@ export function CameraView({
         frameProcessor={enableDetection && isAnyModelReady ? frameProcessor : undefined}
         fps={FRAME_PROCESSING_CONFIG.targetFps}
         pixelFormat="yuv"
+        enableZoomGesture={false}
       />
       {enableDetection && !isAnyModelReady && (
         <View style={styles.loadingOverlay}>
@@ -329,83 +442,6 @@ function processMoveNetOutput(output: Float32Array): PoseLandmarks {
     leftFootIndex: placeholder,
     rightFootIndex: placeholder,
   };
-}
-
-// TypedArray type for TFLite outputs
-type TypedArray = Float32Array | Float64Array | Int8Array | Int16Array | Int32Array | Uint8Array | Uint16Array | Uint32Array;
-
-// COCO class indices we care about
-const PERSON_CLASS = 0;
-const SPORTS_BALL_CLASS = 37; // sports ball in COCO
-
-// Process anchor-based model output (19206 anchors x 90 classes)
-function processAnchorBasedOutput(
-  outputs: TypedArray[],
-  minConfidence: number,
-): DetectedObject[] {
-  'worklet';
-
-  const results: DetectedObject[] = [];
-
-  // Model outputs:
-  // [0] classScores: [1, 19206, 90] - class scores per anchor
-  // [1] boxes: [1, 19206, 4] - bounding boxes per anchor
-  const classScores = outputs[0];
-  const boxes = outputs[1];
-
-  const numAnchors = 19206;
-  const numClasses = 90;
-
-  // Debug: Find max scores for person and ball
-  let maxPersonScore = 0;
-  let maxBallScore = 0;
-
-  // Find best detections
-  for (let i = 0; i < numAnchors; i += 5) {
-    const scoreOffset = i * numClasses;
-
-    // Check sports ball class
-    const ballScore = classScores[scoreOffset + SPORTS_BALL_CLASS];
-    if (ballScore > maxBallScore) maxBallScore = ballScore;
-    if (ballScore > minConfidence) {
-      const boxOffset = i * 4;
-      results.push({
-        label: 'sports ball',
-        confidence: ballScore,
-        boundingBox: {
-          x: boxes[boxOffset + 1],
-          y: boxes[boxOffset],
-          width: boxes[boxOffset + 3] - boxes[boxOffset + 1],
-          height: boxes[boxOffset + 2] - boxes[boxOffset],
-        },
-      });
-    }
-
-    // Check person class
-    const personScore = classScores[scoreOffset + PERSON_CLASS];
-    if (personScore > maxPersonScore) maxPersonScore = personScore;
-    if (personScore > minConfidence) {
-      const boxOffset = i * 4;
-      results.push({
-        label: 'person',
-        confidence: personScore,
-        boundingBox: {
-          x: boxes[boxOffset + 1],
-          y: boxes[boxOffset],
-          width: boxes[boxOffset + 3] - boxes[boxOffset + 1],
-          height: boxes[boxOffset + 2] - boxes[boxOffset],
-        },
-      });
-    }
-
-    if (results.length >= 10) break;
-  }
-
-  // Log max scores every frame for debugging
-  console.log('[ObjectDetection] MaxScores person=' + maxPersonScore.toFixed(3) + ' ball=' + maxBallScore.toFixed(3));
-
-  results.sort((a, b) => b.confidence - a.confidence);
-  return results.slice(0, 5);
 }
 
 const styles = StyleSheet.create({
