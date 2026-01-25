@@ -29,9 +29,10 @@ interface CameraViewProps {
 // MoveNet Lightning expects 192x192 input
 const POSE_MODEL_INPUT_SIZE = 192;
 
-// Store last known detection for smoothing
+// Store last known detection for smoothing (using Worklet-safe shared values)
 let lastDetection: DetectedObject | null = null;
 let framesSinceLastDetection = 0;
+let lastDetectionConfidence = 0; // Track original confidence before decay
 
 export function CameraView({
   children,
@@ -288,15 +289,20 @@ export function CameraView({
 
             detectedObjects.push(detection);
             lastDetection = detection;
+            lastDetectionConfidence = bestScore; // Store original confidence
             framesSinceLastDetection = 0;
           } else {
             // No detection - use last known position for a few frames
             framesSinceLastDetection++;
             if (lastDetection && framesSinceLastDetection <= maxFramesToKeep) {
-              // Show last known position with reduced confidence
+              // Show last known position with gradual decay
+              // Use slower decay: confidence drops by (1 - smoothingDecay) per frame
+              const decayFactor = Math.pow(smoothingDecay, framesSinceLastDetection);
+              const decayedConfidence = lastDetectionConfidence * decayFactor;
+
               detectedObjects.push({
                 ...lastDetection,
-                confidence: lastDetection.confidence * smoothingDecay,
+                confidence: decayedConfidence,
               });
             }
           }

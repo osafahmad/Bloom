@@ -54,8 +54,9 @@ export function DrillScreen({route, navigation}: DrillScreenProps) {
   const [detectedObjects, setDetectedObjects] = useState<DetectedObject[]>([]);
   const lastDetectionRef = React.useRef<{objects: DetectedObject[], timestamp: number}>({objects: [], timestamp: 0});
 
-  // Smoothing: keep showing last detection for up to 300ms after it disappears
-  const DETECTION_PERSIST_MS = 300;
+  // Smoothing: keep showing last detection for up to 500ms after it disappears
+  // This works together with the frame-based smoothing in CameraView
+  const DETECTION_PERSIST_MS = 500;
 
   // Sync dribble count with rep counter
   useEffect(() => {
@@ -152,8 +153,8 @@ export function DrillScreen({route, navigation}: DrillScreenProps) {
         isActive={true}
         enableDetection={enableDetection}
         onObjectDetected={handleObjectDetected}>
-        {/* Ball detection overlay - temporarily hidden for testing */}
-        {/* {enableDetection && (
+        {/* Ball detection overlay */}
+        {enableDetection && (
           <SkeletonOverlay
             pose={null}
             detectedObjects={detectedObjects}
@@ -163,7 +164,7 @@ export function DrillScreen({route, navigation}: DrillScreenProps) {
             lineWidth={3}
             pointSize={8}
           />
-        )} */}
+        )}
 
         {/* Drill-specific overlay */}
         {renderDrill()}
